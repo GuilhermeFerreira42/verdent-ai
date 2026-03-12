@@ -16,9 +16,21 @@ export class LLMProvider {
     }
     
     if (modelId.startsWith('ollama-')) {
-      const baseURL = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434') + '/api';
+      const baseURL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+      const sanitizedModelId = modelId.replace('ollama-', '');
+      
+      console.log(JSON.stringify({
+        level: 'info',
+        agent: 'System',
+        action: 'GET_MODEL',
+        provider: 'ollama',
+        env: { OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL },
+        sanitized: { baseURL, modelId: sanitizedModelId },
+        timestamp: Date.now()
+      }));
+
       const ollama = createOllama({ baseURL });
-      return ollama(modelId.replace('ollama-', ''));
+      return ollama(sanitizedModelId);
     }
     
     throw new Error(`Provedor não suportado para o modelo: ${modelId}`);
@@ -39,7 +51,16 @@ export class LLMProvider {
   }
 
   static async validateConnection(modelId: string, customApiKey?: string): Promise<{ success: boolean; message?: string }> {
+    const timestamp = Date.now();
     try {
+      console.log(JSON.stringify({
+        level: 'info',
+        agent: 'Verifier',
+        action: 'VALIDATE_HANDSHAKE_START',
+        modelId,
+        timestamp
+      }));
+
       const model = this.getModel(modelId, customApiKey);
       
       const { text } = await generateText({
@@ -47,18 +68,53 @@ export class LLMProvider {
         prompt: 'Hello',
       });
 
+      console.log(JSON.stringify({
+        level: 'info',
+        agent: 'Verifier',
+        action: 'VALIDATE_HANDSHAKE_SUCCESS',
+        modelId,
+        responseSnippet: text.substring(0, 50),
+        timestamp: Date.now()
+      }));
+
       return { success: true };
     } catch (error: any) {
-      console.error('DIAGNÓSTICO: Conexão inválida.', error);
-      let errorMessage = error.message || 'Erro desconhecido ao validar a conexão.';
+      const errorTimestamp = Date.now();
+      const status = error.status || error.status_code || (error.cause && (error.cause.status || error.cause.status_code));
       
-      if (modelId.startsWith('gemini-') && errorMessage.includes('API key not valid')) {
-        errorMessage = 'ERRO: Chave de API do Gemini inválida.';
-      } else if (modelId.startsWith('ollama-') && (errorMessage.includes('fetch failed') || errorMessage.includes('ECONNREFUSED'))) {
-        errorMessage = 'ERRO: Servidor Ollama não detectado. Certifique-se de que está rodando localmente.';
+      let diagnostic = 'Erro desconhecido ao validar a conexão.';
+      let type = 'UNKNOWN_ERROR';
+
+      if (modelId.startsWith('gemini-') && error.message?.includes('API key not valid')) {
+        diagnostic = 'ERRO: Chave de API do Gemini inválida.';
+        type = 'INVALID_API_KEY';
+      } else if (modelId.startsWith('ollama-')) {
+        if (error.message?.includes('fetch failed') || error.message?.includes('ECONNREFUSED')) {
+          diagnostic = 'ERRO: Servidor Ollama não detectado. Certifique-se de que está rodando em localhost:11434.';
+          type = 'HOST_UNREACHABLE';
+        } else if (status === 404) {
+          diagnostic = 'ERRO 404: Endpoint não encontrado ou Modelo inexistente no host Ollama.';
+          type = 'NOT_FOUND_404';
+        }
       }
 
-      return { success: false, message: errorMessage };
+      console.error(JSON.stringify({
+        level: 'error',
+        agent: 'Verifier',
+        action: 'VALIDATE_HANDSHAKE_FAILURE',
+        modelId,
+        error: {
+          message: error.message,
+          status: status,
+          stack: error.stack,
+          cause: error.cause
+        },
+        diagnostic,
+        type,
+        timestamp: errorTimestamp
+      }));
+
+      return { success: false, message: diagnostic };
     }
   }
 
