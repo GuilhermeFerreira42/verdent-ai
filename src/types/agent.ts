@@ -46,7 +46,7 @@ export const PlanArtifactSchema = z.object({
     title: z.string(),
     description: z.string(),
     file_path: z.string().optional(),
-    action: z.enum(['CREATE', 'MODIFY', 'DELETE']).optional(),
+    action: z.enum(['CREATE', 'MODIFY', 'DELETE', 'UPDATE']).optional(),
   })),
   affectedFiles: z.array(z.string()),
   techStack: z.array(z.string()),

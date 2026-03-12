@@ -24,7 +24,13 @@ export class PlannerAgent {
         "payload": {
           "version": "1.0.0",
           "tasks": [
-            { "id": 1, "title": "Task Title", "description": "Detailed description", "file_path": "path/to/file", "action": "CREATE" }
+            { 
+              "id": 1, 
+              "title": "Task Title", 
+              "description": "Detailed description", 
+              "file_path": "path/to/file", 
+              "action": "CREATE" | "MODIFY" | "DELETE" | "UPDATE" 
+            }
           ],
           "affectedFiles": ["file1", "file2"],
           "techStack": ["Next.js", "Tailwind"],
@@ -32,7 +38,7 @@ export class PlannerAgent {
         }
       }
       
-      Ensure the JSON is valid and strictly follows the schema.
+      Ensure the JSON is valid, strictly follows the schema, and use "MODIFY" or "UPDATE" for changes to existing files.
     `;
 
     const text = await executeAgent(modelId, 'Planner', prompt, customApiKey);
