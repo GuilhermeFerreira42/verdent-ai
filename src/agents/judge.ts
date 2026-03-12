@@ -1,13 +1,12 @@
-import { getAgentSession } from '@/lib/gemini';
+import { executeAgent } from '@/lib/agent-runner';
 import { SandboxManager } from '@/lib/sandbox/manager';
 import { Verdict, VerdictSchema, CodeReview } from '@/types/agent';
 
 export class JudgeAgent {
-  async evaluate(taskId: string, reviews: CodeReview[], customApiKey?: string): Promise<Verdict> {
+  async evaluate(taskId: string, reviews: CodeReview[], modelId: string, customApiKey?: string): Promise<Verdict> {
     const fs = SandboxManager.get(taskId);
     if (!fs) throw new Error('Sandbox not found');
 
-    const chat = await getAgentSession('Judge', customApiKey);
     const diff = fs.getDiff();
     
     const prompt = `
@@ -34,8 +33,7 @@ export class JudgeAgent {
       }
     `;
 
-    const result = await chat.sendMessage({ message: prompt });
-    const text = result.text || '';
+    const text = await executeAgent(modelId, 'Judge', prompt, customApiKey);
 
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);

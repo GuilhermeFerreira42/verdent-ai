@@ -8,15 +8,17 @@ export async function GET() {
         return NextResponse.json({ error: 'API Key not configured' }, { status: 500 });
     }
 
-    const genAI = new GoogleGenAI(apiKey);
+    const genAI = new GoogleGenAI({ apiKey });
 
     try {
-        const result = await genAI.listModels();
-        const models = result.models.map(m => ({
-            name: m.name,
-            description: m.description,
-            methods: m.supportedGenerationMethods
-        }));
+        const models = [];
+        const response = await genAI.models.list();
+        for await (const m of response) {
+            models.push({
+                name: m.name,
+                description: m.description
+            });
+        }
 
         return NextResponse.json({ models });
     } catch (error: any) {

@@ -9,13 +9,13 @@ async function listModels() {
         console.error('API Key not found in .env');
         return;
     }
-    const genAI = new GoogleGenAI(apiKey);
+    const genAI = new GoogleGenAI({ apiKey });
     try {
-        const result = await genAI.listModels();
         console.log('Available Models:');
-        result.models.forEach(m => {
-            console.log(`- ${m.name} (${m.supportedGenerationMethods.join(', ')})`);
-        });
+        const response = await genAI.models.list();
+        for await (const m of response) {
+            console.log(`- ${m.name}`);
+        }
     } catch (error) {
         console.error('Error listing models:', error);
     }

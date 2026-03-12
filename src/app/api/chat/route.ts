@@ -1,4 +1,3 @@
-import { getAgentSession, validateConnection } from '@/lib/gemini';
 import { validateJsonRpcRequest } from '@/lib/utils';
 import { PlannerAgent } from '@/agents/planner';
 import { CoderAgent } from '@/agents/coder';
@@ -9,6 +8,8 @@ import { Committer } from '@/lib/sandbox/committer';
 import { TelemetryTracker } from '@/lib/telemetry/tracker';
 import { PostMortemReporter } from '@/lib/reports/post-mortem';
 import { NextRequest, NextResponse } from 'next/server';
+import { LLMProvider } from '@/lib/llm-provider';
+import { streamText } from 'ai';
 
 const encoder = new TextEncoder();
 
@@ -17,22 +18,40 @@ export async function POST(req: NextRequest) {
     const customApiKey = req.headers.get('x-gemini-key') || undefined;
 
     const body = await req.json();
+    const modelId = body.modelId || process.env.DEFAULT_MODEL || 'gemini-1.5-flash';
 
-    if (body.action === 'validate') {
-      const connectionCheck = await validateConnection(customApiKey);
-      if (!connectionCheck.success) {
-        return NextResponse.json({ error: connectionCheck.message }, { status: 401 });
-      }
-      return NextResponse.json({ status: 'OK' }, { status: 200 });
+    if (body.action === 'listModels') {
+      const discoveredOllama = await LLMProvider.listLocalModels();
+      const models = [
+        { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'google', isLocal: false },
+        { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'google', isLocal: false },
+        ...discoveredOllama.map(name => ({
+          id: `ollama-${name}`,
+          name: `${name} (Local)`,
+          provider: 'ollama',
+          isLocal: true
+        }))
+      ];
+      return NextResponse.json({ models }, { status: 200 });
     }
 
-    const connectionCheck = await validateConnection(customApiKey);
+    const connectionCheck = await LLMProvider.validateConnection(modelId, customApiKey);
     if (!connectionCheck.success) {
+      const errorStatus = body.action === 'validate' ? 401 : 200; // Returns 200 with JSONRpc error if not just validating
+      
+      if (body.action === 'validate') {
+        return NextResponse.json({ error: connectionCheck.message }, { status: 401 });
+      }
+
       return NextResponse.json({
         jsonrpc: '2.0',
         error: { code: -32000, message: connectionCheck.message },
-        id: null
-      }, { status: 401 });
+        id: body.id || null
+      });
+    }
+
+    if (body.action === 'validate') {
+      return NextResponse.json({ status: 'OK' }, { status: 200 });
     }
 
     const tracker = TelemetryTracker.getInstance();
@@ -66,15 +85,24 @@ export async function POST(req: NextRequest) {
 
                 tracker.startTimer(taskId, 'Planner');
                 const planner = new PlannerAgent();
-                const result = await planner.analyze(message, customApiKey);
+                const result = await planner.analyze(message, modelId, customApiKey);
                 tracker.stopTimer(taskId, 'Planner', { prompt: 500, completion: 200 });
 
                 send({ result });
               } else {
                 send({ result: { type: 'STATUS', is_processing: true, current_step: 'CHATTING', agent: 'Supervisor' } });
-                const chat = await getAgentSession(params?.role || 'Supervisor', customApiKey);
-                const response = await chat.sendMessage({ message });
-                send({ result: { type: 'CHAT_RESPONSE', text: response.text } });
+                
+                const model = LLMProvider.getModel(modelId, customApiKey);
+                const contextContent = await LLMProvider.loadContextFiles();
+                const systemInstruction = `You are acting as the role: ${params?.role || 'Supervisor'}. Adhere strictly to the AGENTS.md rules.\n\nContext:\n${contextContent}`;
+
+                const { text } = await streamText({
+                  model: model as any,
+                  system: systemInstruction,
+                  prompt: message,
+                });
+                
+                send({ result: { type: 'CHAT_RESPONSE', text } });
               }
             } else if (method === 'executeTask') {
               const { taskId, plan, taskIndex } = params;
@@ -89,19 +117,19 @@ export async function POST(req: NextRequest) {
               // 1. Coder implements
               send({ result: { type: 'STATUS', is_processing: true, current_step: 'CODING', agent: 'Coder' } });
               tracker.startTimer(taskId, 'Coder');
-              const coderResult = await coder.executeTask(taskId, plan, taskIndex, customApiKey);
+              const coderResult = await coder.executeTask(taskId, plan, taskIndex, modelId, customApiKey);
               tracker.stopTimer(taskId, 'Coder', { prompt: 1000, completion: 800 });
 
               // 2. Critic reviews
               send({ result: { type: 'STATUS', is_processing: true, current_step: 'REVIEWING', agent: 'Critic' } });
               tracker.startTimer(taskId, 'Critic');
-              const review = await critic.review(taskId, customApiKey);
+              const review = await critic.review(taskId, modelId, customApiKey);
               tracker.stopTimer(taskId, 'Critic', { prompt: 1200, completion: 300 });
 
               // 3. Judge evaluates
               send({ result: { type: 'STATUS', is_processing: true, current_step: 'JUDGING', agent: 'Judge' } });
               tracker.startTimer(taskId, 'Judge');
-              const verdict = await judge.evaluate(taskId, [review], customApiKey);
+              const verdict = await judge.evaluate(taskId, [review], modelId, customApiKey);
               tracker.stopTimer(taskId, 'Judge', { prompt: 1500, completion: 200 });
 
               // 4. If PASS, commit

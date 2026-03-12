@@ -7,11 +7,15 @@ async function listModels() {
         console.error('API Key not found in environment');
         return;
     }
-    const genAI = new GoogleGenAI(apiKey);
+    const genAI = new GoogleGenAI({ apiKey });
     try {
-        const result = await genAI.listModels();
         console.log('Available Models:');
-        console.log(JSON.stringify(result.models.map(m => m.name), null, 2));
+        const models = [];
+        const response = await genAI.models.list();
+        for await (const m of response) {
+            models.push(m.name);
+        }
+        console.log(JSON.stringify(models, null, 2));
     } catch (error) {
         console.error('Error listing models:', error);
     }

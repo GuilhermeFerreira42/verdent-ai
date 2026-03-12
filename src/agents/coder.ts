@@ -1,16 +1,15 @@
-import { getAgentSession } from '@/lib/gemini';
+import { executeAgent } from '@/lib/agent-runner';
 import { SandboxManager } from '@/lib/sandbox/manager';
 import { PlanArtifact } from '@/types/agent';
 
 export class CoderAgent {
-  async executeTask(taskId: string, plan: PlanArtifact, taskIndex: number, customApiKey?: string): Promise<string> {
+  async executeTask(taskId: string, plan: PlanArtifact, taskIndex: number, modelId: string, customApiKey?: string): Promise<string> {
     const fs = SandboxManager.get(taskId);
     if (!fs) throw new Error('Sandbox not found');
 
     const task = plan.tasks[taskIndex];
     if (!task) throw new Error(`Task index ${taskIndex} not found in plan`);
 
-    const chat = await getAgentSession('Coder', customApiKey);
     const currentFiles = fs.listFiles();
     
     const prompt = `
@@ -35,8 +34,7 @@ export class CoderAgent {
       }
     `;
 
-    const result = await chat.sendMessage({ message: prompt });
-    const text = result.text || '';
+    const text = await executeAgent(modelId, 'Coder', prompt, customApiKey);
 
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);

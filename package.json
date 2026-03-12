@@ -7,11 +7,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "clean": "next clean"
+    "clean": "next clean",
+    "test:providers": "node scripts/verify-providers.mjs"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.43",
     "@google/genai": "^1.17.0",
     "@hookform/resolvers": "^5.2.1",
+    "ai": "^6.0.116",
+    "ai-sdk-ollama": "^3.8.0",
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

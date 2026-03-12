@@ -1,13 +1,12 @@
-import { getAgentSession } from '@/lib/gemini';
+import { executeAgent } from '@/lib/agent-runner';
 import { SandboxManager } from '@/lib/sandbox/manager';
 import { CodeReview, CodeReviewSchema } from '@/types/agent';
 
 export class CriticAgent {
-  async review(taskId: string, customApiKey?: string): Promise<CodeReview> {
+  async review(taskId: string, modelId: string, customApiKey?: string): Promise<CodeReview> {
     const fs = SandboxManager.get(taskId);
     if (!fs) throw new Error('Sandbox not found');
 
-    const chat = await getAgentSession('Critic', customApiKey);
     const diff = fs.getDiff();
     
     const prompt = `
@@ -28,8 +27,7 @@ export class CriticAgent {
       }
     `;
 
-    const result = await chat.sendMessage({ message: prompt });
-    const text = result.text || '';
+    const text = await executeAgent(modelId, 'Critic', prompt, customApiKey);
 
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);

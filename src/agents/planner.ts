@@ -1,10 +1,8 @@
-import { getAgentSession } from '@/lib/gemini';
+import { executeAgent } from '@/lib/agent-runner';
 import { PlanArtifactSchema, PlannerEvent } from '@/types/agent';
 
 export class PlannerAgent {
-  async analyze(userInput: string, customApiKey?: string): Promise<PlannerEvent> {
-    const chat = await getAgentSession('Planner', customApiKey);
-    
+  async analyze(userInput: string, modelId: string, customApiKey?: string): Promise<PlannerEvent> {
     const prompt = `
       Analyze the following user request: "${userInput}".
       
@@ -37,8 +35,7 @@ export class PlannerAgent {
       Ensure the JSON is valid and strictly follows the schema.
     `;
 
-    const result = await chat.sendMessage({ message: prompt });
-    const text = result.text || '';
+    const text = await executeAgent(modelId, 'Planner', prompt, customApiKey);
     
     try {
       // Extract JSON from potential markdown blocks

@@ -20,6 +20,13 @@ interface Log {
   timestamp: number;
 }
 
+interface LLMModel {
+  id: string;
+  name: string;
+  provider: string;
+  isLocal: boolean;
+}
+
 export default function Dashboard() {
   const [phase, setPhase] = useState<PlanState>('IDLE');
   const [messages, setMessages] = useState<Message[]>([
@@ -46,9 +53,45 @@ export default function Dashboard() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [systemStatus, setSystemStatus] = useState<'IDLE' | 'VALIDATING' | 'READY' | 'ERROR'>('IDLE');
   const [systemLogs, setSystemLogs] = useState<Log[]>([]);
+  const [modelId, setModelId] = useState('gemini-1.5-flash');
+  const [availableModels, setAvailableModels] = useState<LLMModel[]>([
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'google', isLocal: false },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'google', isLocal: false }
+  ]);
 
   const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => { setIsMounted(true); }, []);
+  useEffect(() => { 
+    setIsMounted(true); 
+    const savedModel = localStorage.getItem('verdent_model_id');
+    if (savedModel) setModelId(savedModel);
+    
+    // Fetch available models
+    const fetchModels = async () => {
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'listModels' })
+        });
+        const data = await response.json();
+        if (data.models) {
+          setAvailableModels(data.models);
+          addLog('info', `Descobertos ${data.models.length} modelos (Geral + Locais).`);
+        }
+      } catch (error) {
+        console.error('Error fetching models:', error);
+        addLog('warning', 'Falha ao descobrir modelos locais.');
+      }
+    };
+    fetchModels();
+  }, []);
+
+  const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newModel = e.target.value;
+    setModelId(newModel);
+    localStorage.setItem('verdent_model_id', newModel);
+    addLog('info', `Modelo alterado para: ${newModel}`);
+  };
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -83,7 +126,7 @@ export default function Dashboard() {
           'Content-Type': 'application/json',
           'x-gemini-key': apiKey
         },
-        body: JSON.stringify({ action: 'validate' })
+        body: JSON.stringify({ action: 'validate', modelId })
       });
 
       if (response.ok) {
@@ -153,7 +196,8 @@ export default function Dashboard() {
           jsonrpc: '2.0',
           method: 'sendMessage',
           params: { message: userMessage, state: phase, taskId: taskId || 'global' },
-          id: Date.now()
+          id: Date.now(),
+          modelId
         })
       });
 
@@ -239,7 +283,8 @@ export default function Dashboard() {
             planId: plan.version,
             planMarkdown: plan.markdown
           },
-          id: Date.now()
+          id: Date.now(),
+          modelId
         })
       });
 
@@ -280,7 +325,8 @@ export default function Dashboard() {
             jsonrpc: '2.0',
             method: 'executeTask',
             params: { taskId, plan, taskIndex: i },
-            id: Date.now()
+            id: Date.now(),
+            modelId
           })
         });
 
@@ -350,7 +396,8 @@ export default function Dashboard() {
             jsonrpc: '2.0',
             method: 'finalizeTask',
             params: { taskId, status: 'SUCCESS', filesModified: Array.from(new Set(modifiedFiles)) },
-            id: Date.now()
+            id: Date.now(),
+            modelId
           })
         });
         const finalizeData = await finalizeResponse.json();
@@ -386,7 +433,8 @@ export default function Dashboard() {
           jsonrpc: '2.0',
           method: 'readFile',
           params: { taskId, path: filePath },
-          id: Date.now()
+          id: Date.now(),
+          modelId
         })
       });
 
@@ -486,6 +534,17 @@ export default function Dashboard() {
         </div>
 
         <div className="flex items-center gap-4 text-xs">
+          <select
+            value={modelId}
+            onChange={handleModelChange}
+            className="bg-zinc-800/50 border border-zinc-700/50 rounded-md px-2 py-1.5 text-zinc-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+          >
+            {availableModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
           <button
             onClick={() => setIsSettingsOpen(true)}
             className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-800/50 border border-zinc-700/50 hover:bg-zinc-800 transition-colors"
